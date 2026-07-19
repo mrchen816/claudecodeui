@@ -8,6 +8,7 @@ import type { Project, ProjectSession, LLMProvider } from '../../../../types/app
 import type { SessionActivityMap } from '../../../../hooks/useSessionProtection';
 import type { MCPServerStatus, SessionWithProvider } from '../../types/types';
 import { getTaskIndicatorStatus } from '../../utils/utils';
+import { useLongPress } from '../../../../hooks/useLongPress';
 
 import TaskIndicator from './TaskIndicator';
 import SidebarProjectSessions from './SidebarProjectSessions';
@@ -144,6 +145,17 @@ export default function SidebarProjectItem({
     toggleProject();
   };
 
+  const titleLongPress = useLongPress({
+    disabled: isEditing,
+    onLongPress: () => {
+      if (navigator.vibrate) {
+        navigator.vibrate(12);
+      }
+      onProjectSelect(project);
+      onNewSession(project);
+    },
+  });
+
   return (
     <div className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}>
       <div className="md:group group">
@@ -212,7 +224,16 @@ export default function SidebarProjectItem({
                     />
                   ) : (
                     <>
-                      <div className="flex min-w-0 flex-1 items-center justify-between">
+                      <div
+                        className={cn(
+                          'flex min-w-0 flex-1 items-center justify-between',
+                          titleLongPress.isPressing && 'opacity-70',
+                        )}
+                        onTouchStart={titleLongPress.onTouchStart}
+                        onTouchMove={titleLongPress.onTouchMove}
+                        onTouchEnd={titleLongPress.onTouchEnd}
+                        onTouchCancel={titleLongPress.onTouchCancel}
+                      >
                         <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
                         {tasksEnabled && (
                           <TaskIndicator

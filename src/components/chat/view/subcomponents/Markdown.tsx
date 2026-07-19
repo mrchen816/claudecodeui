@@ -4,14 +4,16 @@ import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTranslation } from 'react-i18next';
 
 import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
+
+// Lazy so the heavy syntax-highlighter bundle is fetched only when a real code
+// block renders; until it resolves we show a plain <pre> with the same styling.
+const HighlightedCode = React.lazy(() => import('./LazySyntaxHighlighter'));
 
 type MarkdownProps = {
   children: React.ReactNode;
@@ -136,27 +138,20 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
         )}
       </button>
 
-      <SyntaxHighlighter
-        language={language}
-        style={isDarkMode ? oneDark : oneLight}
-        customStyle={{
-          margin: 0,
-          borderRadius: '0.75rem',
-          fontSize: '0.875rem',
-          padding: language && language !== 'text' ? '2rem 1rem 1rem 1rem' : '1rem',
-          // ChatGPT-style soft grey block in light mode; keep oneDark's own bg in dark.
-          ...(isDarkMode ? {} : { background: 'hsl(var(--muted))' }),
-        }}
-        codeTagProps={{
-          style: {
-            fontFamily:
-              'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-            ...(isDarkMode ? {} : { background: 'transparent' }),
-          },
-        }}
+      <React.Suspense
+        fallback={
+          <pre
+            className="m-0 overflow-x-auto rounded-xl bg-muted p-4 font-mono text-sm text-foreground dark:bg-gray-800/60"
+            style={{ padding: language && language !== 'text' ? '2rem 1rem 1rem 1rem' : '1rem' }}
+          >
+            <code>{raw}</code>
+          </pre>
+        }
       >
-        {raw}
-      </SyntaxHighlighter>
+        <HighlightedCode language={language} isDarkMode={isDarkMode}>
+          {raw}
+        </HighlightedCode>
+      </React.Suspense>
     </div>
   );
 };

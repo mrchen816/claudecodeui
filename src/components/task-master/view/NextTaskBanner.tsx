@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import {
   CheckCircle,
   Circle,
@@ -14,7 +14,11 @@ import {
 import { cn } from '../../../lib/utils';
 import { useTaskMaster } from '../context/TaskMasterContext';
 import TaskDetailModal from './TaskDetailModal';
-import TaskMasterSetupModal from './modals/TaskMasterSetupModal';
+
+// Lazy: the setup modal embeds an xterm shell (provider login / TaskMaster init).
+// This banner is rendered eagerly in the chat empty state, so importing the modal
+// statically would drag xterm into the initial bundle. Load it only when opened.
+const TaskMasterSetupModal = lazy(() => import('./modals/TaskMasterSetupModal'));
 
 type NextTaskBannerProps = {
   onShowAllTasks?: (() => void) | null;
@@ -111,12 +115,16 @@ export default function NextTaskBanner({ onShowAllTasks = null, onStartTask = nu
           )}
         </div>
 
-        <TaskMasterSetupModal
-          isOpen={showSetupModal}
-          project={currentProject}
-          onClose={() => setShowSetupModal(false)}
-          onAfterClose={handleSetupRefresh}
-        />
+        {showSetupModal && (
+          <Suspense fallback={null}>
+            <TaskMasterSetupModal
+              isOpen={showSetupModal}
+              project={currentProject}
+              onClose={() => setShowSetupModal(false)}
+              onAfterClose={handleSetupRefresh}
+            />
+          </Suspense>
+        )}
       </>
     );
   }

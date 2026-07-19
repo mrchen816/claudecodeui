@@ -1,11 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, lazy, Suspense } from 'react';
 
 import ChatInterface from '../../chat/view/ChatInterface';
-import FileTree from '../../file-tree/view/FileTree';
-import StandaloneShell from '../../standalone-shell/view/StandaloneShell';
-import GitPanel from '../../git-panel/view/GitPanel';
-import PluginTabContent from '../../plugins/view/PluginTabContent';
-import { BrowserUsePanel } from '../../browser-use';
 import type { MainContentProps } from '../types/types';
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
 import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
@@ -14,13 +9,34 @@ import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { authenticatedFetch } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
-import EditorSidebar from '../../code-editor/view/EditorSidebar';
 import type { Project } from '../../../types/app';
-import { TaskMasterPanel } from '../../task-master';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
 import MainContentStateView from './subcomponents/MainContentStateView';
 import ErrorBoundary from './ErrorBoundary';
+
+// Heavy, tab-gated panels are code-split so the initial bundle (chat first paint)
+// no longer eagerly loads xterm (shell), CodeMirror (editor / PRD editor), the git
+// panel, plugins, Task Master, or Browser Use. Each is only fetched when its tab is
+// opened or a file is actually edited.
+const FileTree = lazy(() => import('../../file-tree/view/FileTree'));
+const StandaloneShell = lazy(() => import('../../standalone-shell/view/StandaloneShell'));
+const GitPanel = lazy(() => import('../../git-panel/view/GitPanel'));
+const PluginTabContent = lazy(() => import('../../plugins/view/PluginTabContent'));
+const EditorSidebar = lazy(() => import('../../code-editor/view/EditorSidebar'));
+// Import the concrete component files (not the package barrels): the task-master
+// barrel is also imported eagerly elsewhere (chat empty state pulls NextTaskBanner
+// from it), so a dynamic `import('../../task-master')` would resolve through that
+// eager module and drag the whole panel — TaskBoard → setup modal → xterm shell —
+// back into the initial bundle. Direct file imports keep these fully async.
+const BrowserUsePanel = lazy(() => import('../../browser-use/view/BrowserUsePanel'));
+const TaskMasterPanel = lazy(() => import('../../task-master/view/TaskMasterPanel'));
+
+// Neutral placeholder shown while a lazy panel chunk loads. Kept empty to avoid a
+// text/layout flash; the chunks are small and load quickly once requested.
+function PanelFallback() {
+  return <div className="h-full w-full" />;
+}
 
 type TaskMasterContextValue = {
   currentProject?: Project | null;
@@ -184,65 +200,83 @@ function MainContent({
 
           {activeTab === 'files' && (
             <div className="h-full overflow-hidden">
-              <FileTree selectedProject={selectedProject} onFileOpen={handleFileOpen} />
+              <Suspense fallback={<PanelFallback />}>
+                <FileTree selectedProject={selectedProject} onFileOpen={handleFileOpen} />
+              </Suspense>
             </div>
           )}
 
           {activeTab === 'shell' && (
             <div className="h-full w-full overflow-hidden">
-              <StandaloneShell
-                project={selectedProject}
-                session={selectedSession}
-                showHeader={false}
-                isActive={activeTab === 'shell'}
-              />
+              <Suspense fallback={<PanelFallback />}>
+                <StandaloneShell
+                  project={selectedProject}
+                  session={selectedSession}
+                  showHeader={false}
+                  isActive={activeTab === 'shell'}
+                />
+              </Suspense>
             </div>
           )}
 
           {activeTab === 'git' && (
             <div className="h-full overflow-hidden">
-              <GitPanel
-                selectedProject={selectedProject}
-                isMobile={isMobile}
-                onFileOpen={handleFileOpen}
-                onProjectSelect={onProjectSelect}
-                onProjectsRefresh={onProjectsRefresh}
-              />
+              <Suspense fallback={<PanelFallback />}>
+                <GitPanel
+                  selectedProject={selectedProject}
+                  isMobile={isMobile}
+                  onFileOpen={handleFileOpen}
+                  onProjectSelect={onProjectSelect}
+                  onProjectsRefresh={onProjectsRefresh}
+                />
+              </Suspense>
             </div>
           )}
 
-          {shouldShowTasksTab && <TaskMasterPanel isVisible={activeTab === 'tasks'} />}
+          {shouldShowTasksTab && (
+            <Suspense fallback={<PanelFallback />}>
+              <TaskMasterPanel isVisible={activeTab === 'tasks'} />
+            </Suspense>
+          )}
 
           {shouldShowBrowserTab && activeTab === 'browser' && (
             <div className="h-full overflow-hidden">
-              <BrowserUsePanel isVisible={activeTab === 'browser'} onShowSettings={onShowSettings} />
+              <Suspense fallback={<PanelFallback />}>
+                <BrowserUsePanel isVisible={activeTab === 'browser'} onShowSettings={onShowSettings} />
+              </Suspense>
             </div>
           )}
 
           {activeTab.startsWith('plugin:') && (
             <div className="h-full overflow-hidden">
-              <PluginTabContent
-                pluginName={activeTab.replace('plugin:', '')}
-                selectedProject={selectedProject}
-                selectedSession={selectedSession}
-              />
+              <Suspense fallback={<PanelFallback />}>
+                <PluginTabContent
+                  pluginName={activeTab.replace('plugin:', '')}
+                  selectedProject={selectedProject}
+                  selectedSession={selectedSession}
+                />
+              </Suspense>
             </div>
           )}
         </div>
 
-        <EditorSidebar
-          editingFile={editingFile}
-          isMobile={isMobile}
-          editorExpanded={editorExpanded}
-          editorWidth={editorWidth}
-          hasManualWidth={hasManualWidth}
-          resizeHandleRef={resizeHandleRef}
-          onResizeStart={handleResizeStart}
-          onCloseEditor={handleCloseEditor}
-          onToggleEditorExpand={handleToggleEditorExpand}
-          projectPath={selectedProject.path}
-          fillSpace={activeTab === 'files'}
-        />
+        {editingFile && (
+          <Suspense fallback={<PanelFallback />}>
+            <EditorSidebar
+              editingFile={editingFile}
+              isMobile={isMobile}
+              editorExpanded={editorExpanded}
+              editorWidth={editorWidth}
+              hasManualWidth={hasManualWidth}
+              resizeHandleRef={resizeHandleRef}
+              onResizeStart={handleResizeStart}
+              onCloseEditor={handleCloseEditor}
+              onToggleEditorExpand={handleToggleEditorExpand}
+              projectPath={selectedProject.path}
+              fillSpace={activeTab === 'files'}
+            />
+          </Suspense>
+        )}
       </div>
     </div>
   );

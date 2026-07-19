@@ -53,19 +53,14 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
+          // Only pin genuinely eager, app-wide shared deps here. CodeMirror and
+          // xterm are intentionally left out: forcing them into named vendor
+          // chunks made Rollup treat them as synchronous entry dependencies and
+          // emit <link modulepreload> for them, defeating the React.lazy split of
+          // the editor/shell/task-master panels. Left unpinned, Rollup keeps them
+          // in async chunks that only load when those panels are opened.
           manualChunks: {
-            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            'vendor-codemirror': [
-              '@uiw/react-codemirror',
-              '@codemirror/lang-css',
-              '@codemirror/lang-html',
-              '@codemirror/lang-javascript',
-              '@codemirror/lang-json',
-              '@codemirror/lang-markdown',
-              '@codemirror/lang-python',
-              '@codemirror/theme-one-dark'
-            ],
-            'vendor-xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-clipboard', '@xterm/addon-webgl']
+            'vendor-react': ['react', 'react-dom', 'react-router-dom']
           }
         }
       }

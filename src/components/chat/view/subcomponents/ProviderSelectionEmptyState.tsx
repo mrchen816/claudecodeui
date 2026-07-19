@@ -8,7 +8,10 @@ import type {
   ProviderModelsDefinition,
 } from "../../../../types/app";
 import SessionProviderLogo from "../../../llm-logo-provider/SessionProviderLogo";
-import { NextTaskBanner } from "../../../task-master";
+// Import the component file directly, not the task-master barrel: the barrel also
+// re-exports TaskMasterPanel, and pulling it into this eagerly-loaded chat empty
+// state would drag the panel's xterm shell into the initial bundle.
+import NextTaskBanner from "../../../task-master/view/NextTaskBanner";
 import {
   Dialog,
   DialogTrigger,

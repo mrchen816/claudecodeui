@@ -168,6 +168,33 @@ test('Cursor synchronizer decodes project folders that contain dashes', { concur
   }
 });
 
+test('Cursor synchronizer full-scans to backfill sessions missed by incremental sync', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'cursorws'));
+  const restoreHomeDir = patchHomeDir(tempRoot);
+
+  try {
+    const older = await writeCursorAgentTranscript(tempRoot, tempRoot, 'cursor-old', 'Older session');
+    const newer = await writeCursorAgentTranscript(tempRoot, tempRoot, 'cursor-new', 'Newer session');
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new CursorSessionSynchronizer();
+      assert.equal(await synchronizer.synchronize(new Date()), 2);
+      assert.equal(sessionsDb.getSessionById('cursor-old')?.custom_name, 'Older session');
+      assert.equal(sessionsDb.getSessionById('cursor-new')?.custom_name, 'Newer session');
+
+      // Touch only the newer transcript; a second full scan must still keep both rows.
+      const { utimes } = await import('node:fs/promises');
+      const now = new Date();
+      await utimes(newer, now, now);
+      assert.equal(await synchronizer.synchronize(new Date()), 2);
+      assert.equal(sessionsDb.getAllSessions().length, 2);
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('Cursor history loads agent-transcript JSONL when store.db is missing', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'cursorws'));
   const workspacePath = tempRoot;

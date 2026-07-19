@@ -96,13 +96,17 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
 
   /**
    * Scans Cursor chats and upserts discovered sessions into DB.
+   *
+   * Cursor always performs a full scan: transcript volume is small, and
+   * incremental birthtime filtering skips sessions that existed before a sync
+   * fix or before the watcher started (the common case after upgrading).
    */
-  async synchronize(since?: Date): Promise<number> {
+  async synchronize(_since?: Date): Promise<number> {
     const projectsDir = path.join(this.cursorHome, 'projects');
 
     let processed = 0;
 
-    const files = await findFilesRecursivelyCreatedAfter(projectsDir, '.jsonl', since ?? null);
+    const files = await findFilesRecursivelyCreatedAfter(projectsDir, '.jsonl', null);
 
     for (const filePath of files) {
       if (this.isSubagentTranscript(filePath)) {

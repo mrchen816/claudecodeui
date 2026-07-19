@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import readline from 'node:readline';
 
 import { parseFilesInputTag, parseImagesInputTag } from '@/shared/image-attachments.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
@@ -12,6 +14,7 @@ import {
   sanitizeLeafDirectoryName,
   sliceTailPage,
 } from '@/shared/utils.js';
+import { sessionsDb } from '@/modules/database/index.js';
 
 const PROVIDER = 'cursor';
 
@@ -395,6 +398,55 @@ export class CursorSessionsProvider implements IProviderSessions {
   }
 
   /**
+   * Loads Cursor agent-transcript JSONL files into the same blob shape used by
+   * the legacy store.db reader so normalization stays unified.
+   */
+  private async loadCursorJsonlBlobs(jsonlPath: string): Promise<CursorMessageBlob[]> {
+    const messages: CursorMessageBlob[] = [];
+    const fileStream = fs.createReadStream(jsonlPath);
+    const lineReader = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+    let lineIndex = 0;
+
+    for await (const line of lineReader) {
+      if (!line.trim()) {
+        continue;
+      }
+
+      try {
+        const entry = JSON.parse(line) as AnyRecord;
+        if (entry.type === 'turn_ended') {
+          continue;
+        }
+
+        const role = typeof entry.role === 'string' ? entry.role : null;
+        const message = entry.message;
+        if (!role || !message || typeof message !== 'object') {
+          continue;
+        }
+
+        lineIndex += 1;
+        messages.push({
+          id: `jsonl-${lineIndex}`,
+          sequence: lineIndex,
+          rowid: lineIndex,
+          content: {
+            message: {
+              role,
+              content: (message as AnyRecord).content,
+            },
+          },
+        });
+      } catch {
+        // Skip malformed lines that can happen during concurrent writes.
+      }
+    }
+
+    lineReader.close();
+    fileStream.close();
+    return messages;
+  }
+
+  /**
    * Fetches and paginates Cursor session history from its project-scoped store.db.
    *
    * Pagination follows the shared tail contract (`sliceTailPage`): offset 0 is
@@ -409,8 +461,41 @@ export class CursorSessionsProvider implements IProviderSessions {
     // the app-facing session id this method is addressed with.
     const providerSessionId = options.providerSessionId ?? sessionId;
 
+    let blobs: CursorMessageBlob[] = [];
     try {
-      const blobs = await this.loadCursorBlobs(providerSessionId, projectPath);
+      blobs = await this.loadCursorBlobs(providerSessionId, projectPath);
+    } catch (storeDbError) {
+      const jsonlPath = sessionsDb.getSessionById(sessionId)?.jsonl_path
+        ?? sessionsDb.getSessionByProviderSessionId(providerSessionId)?.jsonl_path;
+      if (!jsonlPath) {
+        const message = storeDbError instanceof Error ? storeDbError.message : String(storeDbError);
+        console.warn(`[CursorProvider] Failed to load session ${sessionId}:`, message);
+        return { messages: [], total: 0, hasMore: false, offset: 0, limit: null };
+      }
+
+      try {
+        blobs = await this.loadCursorJsonlBlobs(jsonlPath);
+      } catch (jsonlError) {
+        const message = jsonlError instanceof Error ? jsonlError.message : String(jsonlError);
+        console.warn(`[CursorProvider] Failed to load session ${sessionId} from JSONL:`, message);
+        return { messages: [], total: 0, hasMore: false, offset: 0, limit: null };
+      }
+    }
+
+    if (blobs.length === 0) {
+      const jsonlPath = sessionsDb.getSessionById(sessionId)?.jsonl_path
+        ?? sessionsDb.getSessionByProviderSessionId(providerSessionId)?.jsonl_path;
+      if (jsonlPath) {
+        try {
+          blobs = await this.loadCursorJsonlBlobs(jsonlPath);
+        } catch (jsonlError) {
+          const message = jsonlError instanceof Error ? jsonlError.message : String(jsonlError);
+          console.warn(`[CursorProvider] Failed to load session ${sessionId} from JSONL:`, message);
+        }
+      }
+    }
+
+    try {
       const allNormalized = this.normalizeCursorBlobs(blobs, sessionId);
       const renderableMessages = allNormalized.filter((msg) => msg.kind !== 'tool_result');
       const total = renderableMessages.length;
@@ -425,7 +510,7 @@ export class CursorSessionsProvider implements IProviderSessions {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[CursorProvider] Failed to load session ${sessionId}:`, message);
+      console.warn(`[CursorProvider] Failed to normalize session ${sessionId}:`, message);
       return { messages: [], total: 0, hasMore: false, offset: 0, limit: null };
     }
   }

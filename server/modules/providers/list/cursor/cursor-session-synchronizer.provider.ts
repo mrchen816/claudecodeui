@@ -1,6 +1,4 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
-import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -21,16 +19,64 @@ type ParsedSession = {
 };
 
 /**
- * Returns directory entries or an empty list when the folder is missing.
+ * Reconstructs an absolute workspace path from a Cursor project folder name.
+ *
+ * Cursor encodes paths by replacing non-alphanumeric characters with `-`,
+ * which is lossy when folder names themselves contain dashes or spaces. This
+ * decoder walks the encoded tokens left-to-right and greedily forms the
+ * longest existing path prefix at each step.
  */
-async function listDirectoryEntriesSafe(
-  directoryPath: string
-): Promise<import('node:fs').Dirent[]> {
-  try {
-    return await fsp.readdir(directoryPath, { withFileTypes: true });
-  } catch {
-    return [];
+function decodeProjectPathFromCursorProjectDir(projectDir: string): string | null {
+  const folderName = path.basename(projectDir).trim();
+  if (!folderName) {
+    return null;
   }
+
+  const tokens = folderName.split('-').filter(Boolean);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  let currentPath = '';
+  let index = 0;
+
+  while (index < tokens.length) {
+    let matched = false;
+
+    for (let end = tokens.length; end > index; end -= 1) {
+      const segment = tokens.slice(index, end).join('-');
+      const candidate = currentPath ? `${currentPath}/${segment}` : `/${segment}`;
+
+      try {
+        fs.accessSync(candidate);
+        currentPath = candidate;
+        index = end;
+        matched = true;
+        break;
+      } catch {
+        // Try a shorter segment so dashes inside folder names are preserved.
+      }
+    }
+
+    if (!matched) {
+      return null;
+    }
+  }
+
+  return currentPath || null;
+}
+
+/**
+ * Resolves the Cursor project root directory for one transcript file.
+ */
+function resolveCursorProjectDir(filePath: string): string {
+  const normalizedParts = path.normalize(filePath).split(path.sep);
+  const agentTranscriptsIndex = normalizedParts.lastIndexOf('agent-transcripts');
+  if (agentTranscriptsIndex > 0) {
+    return normalizedParts.slice(0, agentTranscriptsIndex).join(path.sep);
+  }
+
+  return path.dirname(filePath);
 }
 
 /**
@@ -39,6 +85,14 @@ async function listDirectoryEntriesSafe(
 export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
   private readonly provider = 'cursor' as const;
   private readonly cursorHome = path.join(os.homedir(), '.cursor');
+
+  /**
+   * Returns true when a JSONL file is a subagent transcript rather than a
+   * top-level session.
+   */
+  private isSubagentTranscript(filePath: string): boolean {
+    return path.normalize(filePath).split(path.sep).includes('subagents');
+  }
 
   /**
    * Scans Cursor chats and upserts discovered sessions into DB.
@@ -51,6 +105,10 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
     const files = await findFilesRecursivelyCreatedAfter(projectsDir, '.jsonl', since ?? null);
 
     for (const filePath of files) {
+      if (this.isSubagentTranscript(filePath)) {
+        continue;
+      }
+
       const parsed = await this.processSessionFile(filePath);
       if (!parsed) {
         continue;
@@ -77,6 +135,9 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
    */
   async synchronizeFile(filePath: string): Promise<string | null> {
     if (!filePath.endsWith('.jsonl')) {
+      return null;
+    }
+    if (this.isSubagentTranscript(filePath)) {
       return null;
     }
 
@@ -124,11 +185,20 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
   /**
    * Extracts session metadata from one Cursor JSONL session file.
    */
+  private async resolveProjectPath(filePath: string): Promise<string | null> {
+    const projectDir = resolveCursorProjectDir(filePath);
+    const workerLogPath = path.join(projectDir, 'worker.log');
+    const fromWorkerLog = await this.extractProjectPathFromWorkerLog(workerLogPath);
+    if (fromWorkerLog) {
+      return fromWorkerLog;
+    }
+
+    return decodeProjectPathFromCursorProjectDir(projectDir);
+  }
+
   private async processSessionFile(filePath: string): Promise<ParsedSession | null> {
     const sessionId = path.basename(filePath, '.jsonl');
-    const grandparentDir = path.dirname(path.dirname(path.dirname(filePath)));
-    const workerLogPath = path.join(grandparentDir, 'worker.log');
-    const projectPath = await this.extractProjectPathFromWorkerLog(workerLogPath);
+    const projectPath = await this.resolveProjectPath(filePath);
 
     if (!projectPath) {
       return null;

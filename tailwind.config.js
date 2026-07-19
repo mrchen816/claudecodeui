@@ -15,8 +15,33 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['"Encode Sans"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
-        serif: ['Merriweather', 'Georgia', 'Cambria', '"Times New Roman"', 'serif'],
+        sans: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"SF Pro SC"',
+          '"SF Pro Text"',
+          '"PingFang SC"',
+          '"Helvetica Neue"',
+          'Helvetica',
+          '"Microsoft YaHei"',
+          '"Segoe UI"',
+          'Arial',
+          'sans-serif',
+        ],
+        // Mapped to the same stack so any leftover font-serif still matches UI/chat.
+        serif: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"SF Pro SC"',
+          '"SF Pro Text"',
+          '"PingFang SC"',
+          '"Helvetica Neue"',
+          'Helvetica',
+          '"Microsoft YaHei"',
+          '"Segoe UI"',
+          'Arial',
+          'sans-serif',
+        ],
       },
       colors: {
         border: "hsl(var(--border))",

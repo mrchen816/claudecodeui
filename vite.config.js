@@ -28,6 +28,10 @@ export default defineConfig(({ mode }) => {
     server: {
       host,
       port: parseInt(env.VITE_PORT) || 5173,
+      // Allow the Cloudflare Tunnel hostname to reach the dev server. Vite 7
+      // rejects unknown Host headers with "Blocked request. This host is not
+      // allowed." Extra hosts can be added via ALLOWED_HOSTS (comma-separated).
+      allowedHosts: ['cloudcli.okayduck.com', ...(env.ALLOWED_HOSTS ? env.ALLOWED_HOSTS.split(',').map((h) => h.trim()).filter(Boolean) : [])],
       proxy: {
         '/api': `http://${proxyHost}:${serverPort}`,
         '/ws': {

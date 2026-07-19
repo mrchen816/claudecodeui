@@ -123,10 +123,11 @@ export default function SidebarSessionItem({
 
   // Sessions are owned by a project identified by `projectId` (DB primary key)
   // after the projectName → projectId migration.
-  const selectMobileSession = () => {
-    onProjectSelect(project);
-    onSessionSelect(session, project.projectId);
-  };
+  // TEMP test: unused while mobile layout is commented out
+  // const selectMobileSession = () => {
+  //   onProjectSelect(project);
+  //   onSessionSelect(session, project.projectId);
+  // };
 
   const saveEditedSession = () => {
     onSaveEditingSession(project.projectId, session.id, editingSessionName, session.__provider);
@@ -232,6 +233,7 @@ export default function SidebarSessionItem({
         </div>
       )}
 
+      {/* TEMP test: mobile layout (<768px) disabled so rename stays available on narrow viewports
       <div className="md:hidden">
         <div
           className={cn(
@@ -369,8 +371,10 @@ export default function SidebarSessionItem({
           </DialogContent>
         </Dialog>
       </div>
+      */}
 
-      <div className="hidden md:block">
+      {/* TEMP test: was `hidden md:block` — always show desktop session row (incl. rename) */}
+      <div>
         <a
           href={`/session/${session.id}`}
           className={cn(
@@ -407,7 +411,8 @@ export default function SidebarSessionItem({
                   <span
                     className={cn(
                       'ml-auto flex-shrink-0 transition-opacity duration-200',
-                      isEditing ? 'opacity-0' : 'group-hover:opacity-0',
+                      // TEMP test: was `group-hover:opacity-0`
+                      isEditing ? 'opacity-0' : '',
                     )}
                   >
                     <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
@@ -420,7 +425,8 @@ export default function SidebarSessionItem({
                   <span
                     className={cn(
                       'ml-auto flex-shrink-0 text-[11px] text-muted-foreground transition-opacity duration-200',
-                      isEditing ? 'opacity-0' : 'group-hover:opacity-0',
+                      // TEMP test: was `group-hover:opacity-0`
+                      isEditing ? 'opacity-0' : '',
                     )}
                   >
                     {compactSessionAge}
@@ -436,7 +442,11 @@ export default function SidebarSessionItem({
 
         <div
           ref={editingContainerRef}
-          className="absolute right-2 top-1/2 flex -translate-y-1/2 transform items-center gap-1 opacity-100 transition-all duration-200"
+          className={cn(
+            'absolute right-2 top-1/2 flex -translate-y-1/2 transform items-center gap-1 transition-all duration-200',
+            // TEMP test: always show rename/delete (was `opacity-0 group-hover:opacity-100`)
+            'opacity-100',
+          )}
         >
             {isEditing ? (
               <>

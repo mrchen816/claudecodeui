@@ -4,8 +4,7 @@ import path from 'path';
 // cross-spawn: drop-in spawn with Windows .cmd/PATHEXT resolution.
 import spawn from 'cross-spawn';
 
-import { scanPlugins, getPluginsConfig, getPluginDir } from './plugin-registry.service.js';
-
+import { scanPlugins, getPluginsConfig, getPluginDir, fixNodePtySpawnHelper } from './plugin-registry.service.js';
 // Map<pluginName, { process, port }>
 const runningPlugins = new Map();
 // Map<pluginName, Promise<port>> — in-flight start operations
@@ -60,6 +59,9 @@ export function startPluginServer(name, pluginDir, serverEntry) {
   if (startingPlugins.has(name)) {
     return startingPlugins.get(name);
   }
+
+  // Plugins install with --ignore-scripts; repair macOS node-pty spawn-helper here.
+  fixNodePtySpawnHelper(pluginDir);
 
   const startPromise = new Promise((resolve, reject) => {
 

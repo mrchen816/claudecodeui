@@ -231,6 +231,26 @@ export function getPluginDir(name) {
   return path.join(getPluginsDir(), plugin.dirName);
 }
 
+/**
+ * macOS node-pty ships spawn-helper without +x. Host installs use
+ * --ignore-scripts, so npm never fixes it — chmod here instead.
+ * @see https://github.com/microsoft/node-pty/issues/850
+ */
+export function fixNodePtySpawnHelper(pluginDir) {
+  if (process.platform !== 'darwin' || !pluginDir) return;
+
+  const prebuilds = path.join(pluginDir, 'node_modules', 'node-pty', 'prebuilds');
+  for (const dir of ['darwin-arm64', 'darwin-x64']) {
+    const helper = path.join(prebuilds, dir, 'spawn-helper');
+    try {
+      if (!fs.existsSync(helper)) continue;
+      fs.chmodSync(helper, 0o755);
+    } catch (err) {
+      console.warn(`[Plugins] Could not fix node-pty spawn-helper (${helper}):`, err.message);
+    }
+  }
+}
+
 export function resolvePluginAssetPath(name, assetPath) {
   const pluginDir = getPluginDir(name);
   if (!pluginDir) return null;
@@ -350,6 +370,7 @@ export function installPluginFromGit(url) {
             cleanupTemp();
             return reject(new Error(`npm install for ${repoName} failed (exit code ${npmCode})`));
           }
+          fixNodePtySpawnHelper(tempDir);
           runBuildIfNeeded(tempDir, packageJsonPath, () => finalize(manifest), (err) => { cleanupTemp(); reject(err); });
         });
 
@@ -415,6 +436,7 @@ export function updatePluginFromGit(name) {
           if (npmCode !== 0) {
             return reject(new Error(`npm install for ${name} failed (exit code ${npmCode})`));
           }
+          fixNodePtySpawnHelper(pluginDir);
           runBuildIfNeeded(pluginDir, packageJsonPath, () => resolve(manifest), (err) => reject(err));
         });
         npmProcess.on('error', (err) => reject(err));

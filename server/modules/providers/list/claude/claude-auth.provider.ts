@@ -249,7 +249,7 @@ export class ClaudeProviderAuth implements IProviderAuth {
       };
     }
 
-    const credentials = await resolveClaudeCredentials(defaultDependencies());
+    const credentials = await this.checkCredentials();
 
     return {
       installed,
@@ -259,5 +259,13 @@ export class ClaudeProviderAuth implements IProviderAuth {
       method: credentials.method,
       error: credentials.authenticated ? undefined : credentials.error || 'Not authenticated',
     };
+  }
+
+  /**
+   * Checks Claude credentials using the injectable resolver. Kept as a class method so
+   * existing unit tests can call it without shelling out to the Claude CLI.
+   */
+  private checkCredentials(): Promise<ClaudeCredentialsStatus> {
+    return resolveClaudeCredentials(defaultDependencies());
   }
 }

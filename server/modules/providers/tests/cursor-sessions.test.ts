@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { loadCursorComposerTitles } from '@/modules/providers/list/cursor/cursor-composer-headers.js';
 import { CursorSessionSynchronizer } from '@/modules/providers/list/cursor/cursor-session-synchronizer.provider.js';
 import { CursorSessionsProvider } from '@/modules/providers/list/cursor/cursor-sessions.provider.js';
 
@@ -195,6 +196,112 @@ test('Cursor synchronizer full-scans to backfill sessions missed by incremental 
   }
 });
 
+test('Cursor synchronizer prefers composer sidebar titles over first user prompt', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'cursorws'));
+  const restoreHomeDir = patchHomeDir(tempRoot);
+  const composerDbPath = path.join(tempRoot, 'composer-state.vscdb');
+  const { default: Database } = await import('better-sqlite3');
+
+  try {
+    const db = new Database(composerDbPath);
+    db.exec(`
+      CREATE TABLE composerHeaders (
+        composerId TEXT PRIMARY KEY,
+        workspaceId TEXT,
+        createdAt INTEGER,
+        lastUpdatedAt INTEGER,
+        isArchived INTEGER,
+        isSubagent INTEGER,
+        recency INTEGER,
+        checkpointAt INTEGER,
+        value TEXT
+      );
+    `);
+    db.prepare(`
+      INSERT INTO composerHeaders (composerId, isSubagent, value)
+      VALUES (?, 0, ?)
+    `).run(
+      'cursor-titled-session',
+      JSON.stringify({ name: '修复同步cursor对话' }),
+    );
+    db.close();
+
+    const filePath = await writeCursorAgentTranscript(
+      tempRoot,
+      tempRoot,
+      'cursor-titled-session',
+      '不能把cursor的对话同步到前端，看看有什么问题',
+    );
+
+    const titles = await loadCursorComposerTitles(composerDbPath);
+    assert.equal(titles.get('cursor-titled-session'), '修复同步cursor对话');
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new CursorSessionSynchronizer(composerDbPath);
+      const sessionId = await synchronizer.synchronizeFile(filePath);
+      assert.equal(sessionId, 'cursor-titled-session');
+      assert.equal(
+        sessionsDb.getSessionById('cursor-titled-session')?.custom_name,
+        '修复同步cursor对话',
+      );
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Cursor JSONL omits text parts that are only [REDACTED]', { concurrency: false }, () => {
+  const provider = new CursorSessionsProvider();
+
+  const redactedOnly = provider.normalizeCursorBlobs([{
+    id: 'jsonl-1',
+    sequence: 1,
+    rowid: 1,
+    content: {
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: '[REDACTED]' }],
+      },
+    },
+  }], 'cursor-redacted');
+
+  assert.equal(redactedOnly.length, 0);
+
+  const mixed = provider.normalizeCursorBlobs([{
+    id: 'jsonl-2',
+    sequence: 2,
+    rowid: 2,
+    content: {
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Visible assistant text.' },
+          { type: 'text', text: '[REDACTED]' },
+        ],
+      },
+    },
+  }], 'cursor-redacted');
+
+  assert.equal(mixed.length, 1);
+  assert.equal(mixed[0].content, 'Visible assistant text.');
+
+  const mixedInline = provider.normalizeCursorBlobs([{
+    id: 'jsonl-3',
+    sequence: 3,
+    rowid: 3,
+    content: {
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Visible assistant text.\n\n[REDACTED]' }],
+      },
+    },
+  }], 'cursor-redacted');
+
+  assert.equal(mixedInline.length, 1);
+  assert.equal(mixedInline[0].content, 'Visible assistant text.');
+});
+
 test('Cursor history loads agent-transcript JSONL when store.db is missing', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'cursorws'));
   const workspacePath = tempRoot;
@@ -214,8 +321,8 @@ test('Cursor history loads agent-transcript JSONL when store.db is missing', { c
         'cursor',
         workspacePath,
         'Show me the history',
-        null,
-        null,
+        undefined,
+        undefined,
         filePath,
       );
 

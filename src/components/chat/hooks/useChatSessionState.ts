@@ -376,40 +376,58 @@ export function useChatSessionState({
     [hasMoreMessages, isLoadingMoreMessages, selectedProject, selectedSession, sessionStore],
   );
 
-  const handleScroll = useCallback(async () => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
+  const scrollRafRef = useRef<number | null>(null);
+  const isUserScrolledUpRef = useRef(isUserScrolledUp);
+  isUserScrolledUpRef.current = isUserScrolledUp;
 
-    const nearBottom = isNearBottom();
-    setIsUserScrolledUp(!nearBottom);
+  const handleScroll = useCallback(() => {
+    // Coalesce scroll/touch storms to one frame — avoids React work mid-gesture.
+    if (scrollRafRef.current != null) return;
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      void (async () => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
 
-    const scrolledNearTop = container.scrollTop < 100;
+        const nearBottom = isNearBottom();
+        const nextScrolledUp = !nearBottom;
+        if (nextScrolledUp !== isUserScrolledUpRef.current) {
+          isUserScrolledUpRef.current = nextScrolledUp;
+          setIsUserScrolledUp(nextScrolledUp);
+        }
 
-    // "Load all" prompt: appear (with fade-in) when the user reaches the top
-    if (scrolledNearTop && hasMoreMessages && !allMessagesLoadedRef.current) {
-      if (!wasNearTopRef.current) {
-        wasNearTopRef.current = true;
-        if (loadAllOverlayTimerRef.current) clearTimeout(loadAllOverlayTimerRef.current);
+        const scrolledNearTop = container.scrollTop < 100;
 
-        setShowLoadAllOverlay(true);
-        loadAllOverlayTimerRef.current = setTimeout(() => {
-          setShowLoadAllOverlay(false);
-          loadAllOverlayTimerRef.current = null;
-        }, 2500);
-      }
-    } else if (!scrolledNearTop) {
-      wasNearTopRef.current = false;
-    }
+        // "Load all" prompt: appear (with fade-in) when the user reaches the top
+        if (scrolledNearTop && hasMoreMessages && !allMessagesLoadedRef.current) {
+          if (!wasNearTopRef.current) {
+            wasNearTopRef.current = true;
+            if (loadAllOverlayTimerRef.current) clearTimeout(loadAllOverlayTimerRef.current);
 
-    if (!allMessagesLoadedRef.current) {
-      if (!scrolledNearTop) { topLoadLockRef.current = false; return; }
-      if (topLoadLockRef.current) {
-        if (container.scrollTop > 20) topLoadLockRef.current = false;
-        return;
-      }
-      const didLoad = await loadOlderMessages(container);
-      if (didLoad) topLoadLockRef.current = true;
-    }
+            setShowLoadAllOverlay(true);
+            loadAllOverlayTimerRef.current = setTimeout(() => {
+              setShowLoadAllOverlay(false);
+              loadAllOverlayTimerRef.current = null;
+            }, 2500);
+          }
+        } else if (!scrolledNearTop) {
+          wasNearTopRef.current = false;
+        }
+
+        if (!allMessagesLoadedRef.current) {
+          if (!scrolledNearTop) {
+            topLoadLockRef.current = false;
+            return;
+          }
+          if (topLoadLockRef.current) {
+            if (container.scrollTop > 20) topLoadLockRef.current = false;
+            return;
+          }
+          const didLoad = await loadOlderMessages(container);
+          if (didLoad) topLoadLockRef.current = true;
+        }
+      })();
+    });
   }, [hasMoreMessages, isNearBottom, loadOlderMessages]);
 
   useLayoutEffect(() => {
@@ -760,8 +778,14 @@ export function useChatSessionState({
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (scrollRafRef.current != null) {
+        window.cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    };
   }, [handleScroll]);
 
   // "Load all" overlay visibility is driven by scroll-to-top in handleScroll;

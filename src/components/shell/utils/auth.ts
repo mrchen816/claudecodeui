@@ -5,7 +5,11 @@ export function getSessionDisplayName(session: ProjectSession | null | undefined
     return null;
   }
 
-  return session.__provider === 'cursor'
-    ? session.name || 'Untitled Session'
-    : session.summary || 'New Session';
+  // Match sidebar / main header: renamed titles live on `summary` (custom_name).
+  const title = String(session.summary || session.name || '').trim();
+  if (title) {
+    return title;
+  }
+
+  return session.__provider === 'cursor' ? 'Untitled Session' : 'New Session';
 }

@@ -58,6 +58,25 @@ function isInternalCursorPart(part: unknown): boolean {
   return isInternalCursorText(record.text);
 }
 
+/** Cursor JSONL transcripts use `[REDACTED]` as a placeholder for censored file paths. */
+function isRedactedOnlyText(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() === '[REDACTED]';
+}
+
+/** Removes standalone `[REDACTED]` lines from multi-line assistant/user text. */
+function stripRedactedPlaceholderLines(value: string): string {
+  if (!value) {
+    return '';
+  }
+
+  return value
+    .split('\n')
+    .filter((line) => !isRedactedOnlyText(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function unwrapUserQueryText(value: string, role: 'user' | 'assistant'): string {
   if (role !== 'user') {
     return value;
@@ -573,7 +592,8 @@ export class CursorSessionsProvider implements IProviderSessions {
                 };
               })()
               : { text, images: undefined, files: undefined };
-            if (cleanText?.trim() || images || files) {
+            const visibleText = stripRedactedPlaceholderLines(cleanText);
+            if (visibleText || images || files) {
               messages.push(createNormalizedMessage({
                 id: baseId,
                 sessionId,
@@ -581,7 +601,7 @@ export class CursorSessionsProvider implements IProviderSessions {
                 provider: PROVIDER,
                 kind: 'text',
                 role,
-                content: cleanText,
+                content: visibleText,
                 images,
                 files,
                 sequence: blob.sequence,
@@ -636,7 +656,8 @@ export class CursorSessionsProvider implements IProviderSessions {
 
             if (part?.type === 'text' && part?.text) {
               const { text: normalizedPartText, images, files } = extractUserTextAndImages(part.text, role);
-              if (!normalizedPartText && !images && !files) {
+              const visibleText = stripRedactedPlaceholderLines(normalizedPartText);
+              if (!visibleText && !images && !files) {
                 continue;
               }
               messages.push(createNormalizedMessage({
@@ -646,7 +667,7 @@ export class CursorSessionsProvider implements IProviderSessions {
                 provider: PROVIDER,
                 kind: 'text',
                 role,
-                content: normalizedPartText,
+                content: visibleText,
                 images,
                 files,
                 sequence: blob.sequence,
@@ -689,7 +710,8 @@ export class CursorSessionsProvider implements IProviderSessions {
           && !isInternalCursorText(content.content)
         ) {
           const { text: normalizedText, images, files } = extractUserTextAndImages(content.content, role);
-          if (!normalizedText && !images && !files) {
+          const visibleText = stripRedactedPlaceholderLines(normalizedText);
+          if (!visibleText && !images && !files) {
             continue;
           }
           messages.push(createNormalizedMessage({
@@ -699,7 +721,7 @@ export class CursorSessionsProvider implements IProviderSessions {
             provider: PROVIDER,
             kind: 'text',
             role,
-            content: normalizedText,
+            content: visibleText,
             images,
             files,
             sequence: blob.sequence,

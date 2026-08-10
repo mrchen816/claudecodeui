@@ -10,7 +10,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon } from 'lucide-react';
+import { PaperclipIcon, Settings, XIcon, Loader2, ArrowUpIcon, Clipboard } from 'lucide-react';
 
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useVoiceAvailable } from '../../hooks/useVoiceAvailable';
@@ -81,6 +81,7 @@ interface ChatComposerProps {
   onToggleCommandMenu: () => void;
   hasInput: boolean;
   onClearInput: () => void;
+  onPasteFromClipboard: () => Promise<'success' | 'failed'>;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
   isDragActive: boolean;
   queuedDraft: QueuedDraft | null;
@@ -141,10 +142,10 @@ export default function ChatComposer({
   modelsLoading,
   tokenBudget,
   onShowTokenUsage,
-  slashCommandsCount,
   onToggleCommandMenu,
   hasInput,
   onClearInput,
+  onPasteFromClipboard,
   onSubmit,
   isDragActive,
   queuedDraft,
@@ -217,6 +218,7 @@ export default function ChatComposer({
   );
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';
+  const [pasteHint, setPasteHint] = useState('');
 
   // Detect if the AskUserQuestion interactive panel is active
   const hasQuestionPanel = pendingPermissionRequests.some(
@@ -243,6 +245,14 @@ export default function ChatComposer({
     : isLoading
       ? t('input.stop')
       : t('input.send');
+
+  const handlePasteButtonClick = useCallback(async () => {
+    setPasteHint('');
+    const result = await onPasteFromClipboard();
+    if (result === 'failed') {
+      setPasteHint(t('input.pasteFailed', { defaultValue: 'Unable to read clipboard. Use the system paste action.' }));
+    }
+  }, [onPasteFromClipboard, t]);
 
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
@@ -389,6 +399,17 @@ export default function ChatComposer({
               <PaperclipIcon />
             </PromptInputButton>
 
+            <PromptInputButton
+              tooltip={{
+                content: pasteHint || t('input.pasteWeChat', { defaultValue: 'Paste (supports WeChat multi-select copy)' }),
+              }}
+              onClick={() => {
+                void handlePasteButtonClick();
+              }}
+            >
+              <Clipboard />
+            </PromptInputButton>
+
             {onVoiceTranscript && voiceAvailable && (
               <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
             )}
@@ -398,16 +419,8 @@ export default function ChatComposer({
             <PromptInputButton
               tooltip={{ content: t('input.showAllCommands') }}
               onClick={onToggleCommandMenu}
-              className="relative"
             >
-              <MessageSquareIcon />
-              {slashCommandsCount > 0 && (
-                <span
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground"
-                >
-                  {slashCommandsCount}
-                </span>
-              )}
+              <Settings />
             </PromptInputButton>
 
             {hasInput && (

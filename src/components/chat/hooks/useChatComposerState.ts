@@ -12,6 +12,8 @@ import type {
 import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
+import { readClipboardItemTexts } from '../../../utils/read-clipboard-items';
+import { buildWeChatPaste } from '../../../utils/wechat-paste';
 import type { MarkSessionProcessing, SessionActivityMap } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import {
@@ -1192,6 +1194,73 @@ export function useChatComposerState({
     setIsTextareaExpanded(false);
   }, [resetCommandMenuState]);
 
+  const insertTextAtCursor = useCallback(
+    (text: string) => {
+      if (!text) {
+        return;
+      }
+
+      const textarea = textareaRef.current;
+      const currentInput = inputValueRef.current;
+      const start = textarea?.selectionStart ?? currentInput.length;
+      const end = textarea?.selectionEnd ?? currentInput.length;
+      const next = `${currentInput.slice(0, start)}${text}${currentInput.slice(end)}`;
+      const caret = start + text.length;
+
+      setInput(next);
+      inputValueRef.current = next;
+      setCursorPosition(caret);
+      handleCommandInputChange(next, caret);
+
+      if (!textarea) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        if (!textareaRef.current) {
+          return;
+        }
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(caret, caret);
+        resizeTextarea(textareaRef.current);
+        syncInputOverlayScroll(textareaRef.current);
+      });
+    },
+    [handleCommandInputChange, resizeTextarea, setCursorPosition, syncInputOverlayScroll, textareaRef],
+  );
+
+  const pasteFromClipboard = useCallback(async (): Promise<'success' | 'failed'> => {
+    try {
+      const texts = await readClipboardItemTexts();
+      if (texts && texts.length > 0) {
+        insertTextAtCursor(buildWeChatPaste(texts) ?? texts.join('\n'));
+        return 'success';
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        const fallback = await navigator.clipboard.readText();
+        if (fallback) {
+          insertTextAtCursor(fallback);
+        }
+        return 'success';
+      }
+    } catch {
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+          const fallback = await navigator.clipboard.readText();
+          if (fallback) {
+            insertTextAtCursor(fallback);
+          }
+          return 'success';
+        }
+      } catch {
+        return 'failed';
+      }
+    }
+
+    return 'failed';
+  }, [insertTextAtCursor]);
+
   const handleAbortSession = useCallback(() => {
     if (!canAbortSession) {
       return;
@@ -1300,6 +1369,7 @@ export function useChatComposerState({
     handleTextareaInput,
     syncInputOverlayScroll,
     handleClearInput,
+    pasteFromClipboard,
     handleAbortSession,
     handlePermissionDecision,
     handleGrantToolPermission,

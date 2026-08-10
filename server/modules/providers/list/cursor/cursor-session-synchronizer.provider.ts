@@ -4,6 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { loadCursorComposerTitles, resolveCursorGlobalStateDbPath } from '@/modules/providers/list/cursor/cursor-composer-headers.js';
 import {
   extractFirstValidJsonlData,
   findFilesRecursivelyCreatedAfter,
@@ -85,6 +86,9 @@ function resolveCursorProjectDir(filePath: string): string {
 export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
   private readonly provider = 'cursor' as const;
   private readonly cursorHome = path.join(os.homedir(), '.cursor');
+  private composerTitleCache: Map<string, string> | null = null;
+
+  constructor(private readonly composerTitleDbPath?: string) {}
 
   /**
    * Returns true when a JSONL file is a subagent transcript rather than a
@@ -102,10 +106,18 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
    * fix or before the watcher started (the common case after upgrading).
    */
   async synchronize(_since?: Date): Promise<number> {
+    const sessionIds = await this.synchronizeWithSessionIds();
+    return sessionIds.length;
+  }
+
+  /**
+   * Full Cursor scan that returns the provider-native session ids that were indexed.
+   */
+  async synchronizeWithSessionIds(): Promise<string[]> {
+    await this.refreshComposerTitleCache();
+
     const projectsDir = path.join(this.cursorHome, 'projects');
-
-    let processed = 0;
-
+    const sessionIds: string[] = [];
     const files = await findFilesRecursivelyCreatedAfter(projectsDir, '.jsonl', null);
 
     for (const filePath of files) {
@@ -113,38 +125,16 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
         continue;
       }
 
-      const parsed = await this.processSessionFile(filePath);
-      if (!parsed) {
-        continue;
+      const sessionId = await this.indexSessionFile(filePath);
+      if (sessionId) {
+        sessionIds.push(sessionId);
       }
-
-      const timestamps = await readFileTimestamps(filePath);
-      sessionsDb.createSession(
-        parsed.sessionId,
-        this.provider,
-        parsed.projectPath,
-        parsed.sessionName,
-        timestamps.createdAt,
-        timestamps.updatedAt,
-        filePath
-      );
-      processed += 1;
     }
 
-    return processed;
+    return sessionIds;
   }
 
-  /**
-   * Parses and upserts one Cursor session JSONL file.
-   */
-  async synchronizeFile(filePath: string): Promise<string | null> {
-    if (!filePath.endsWith('.jsonl')) {
-      return null;
-    }
-    if (this.isSubagentTranscript(filePath)) {
-      return null;
-    }
-
+  private async indexSessionFile(filePath: string): Promise<string | null> {
     const parsed = await this.processSessionFile(filePath);
     if (!parsed) {
       return null;
@@ -158,7 +148,36 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
       parsed.sessionName,
       timestamps.createdAt,
       timestamps.updatedAt,
-      filePath
+      filePath,
+    );
+  }
+
+  /**
+   * Parses and upserts one Cursor session JSONL file.
+   */
+  async synchronizeFile(filePath: string): Promise<string | null> {
+    if (!filePath.endsWith('.jsonl')) {
+      return null;
+    }
+    if (this.isSubagentTranscript(filePath)) {
+      return null;
+    }
+
+    await this.refreshComposerTitleCache();
+    return this.indexSessionFile(filePath);
+  }
+
+  private async refreshComposerTitleCache(): Promise<void> {
+    this.composerTitleCache = await loadCursorComposerTitles(
+      this.composerTitleDbPath ?? resolveCursorGlobalStateDbPath(),
+    );
+  }
+
+  private resolveSessionTitle(sessionId: string, firstLine: string): string {
+    const composerTitle = this.composerTitleCache?.get(sessionId)?.trim();
+    return normalizeSessionName(
+      composerTitle || firstLine,
+      'Untitled Cursor Session',
     );
   }
 
@@ -226,7 +245,7 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
       return {
         sessionId,
         projectPath,
-        sessionName: normalizeSessionName(firstLine, 'Untitled Cursor Session'),
+        sessionName: this.resolveSessionTitle(sessionId, firstLine),
       };
     });
   }

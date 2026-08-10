@@ -48,9 +48,10 @@ const CONTEXT_MENU_EDGE_PADDING_PX = 8;
 const ZOOM_THROTTLE_MS = 50;
 const DEFAULT_MIN_FONT_SIZE = 8;
 const DEFAULT_MAX_FONT_SIZE = 48;
-// xterm scrolls the viewport 1:1 with the finger and never coasts, so we add
-// our own inertial (fling) scrolling: track finger velocity during the drag and
-// keep scrolling with friction after release.
+// xterm binds no touch handlers (it only scrolls its viewport on `wheel`), so
+// we drive the viewport's scrollTop ourselves during a one-finger drag. On top
+// of that 1:1 follow, we add inertial (fling) scrolling: track finger velocity
+// during the drag and keep scrolling with friction after release.
 const SCROLL_INERTIA_FRICTION = 0.95; // velocity multiplier per ~16ms frame
 const SCROLL_INERTIA_MIN_VELOCITY = 0.02; // px/ms below which coasting stops
 const SCROLL_INERTIA_MAX_VELOCITY = 5; // px/ms cap to avoid runaway flings
@@ -373,8 +374,20 @@ class ShellMobileSelectionCore implements MobileTerminalSelectionManager {
       return;
     }
 
-    // Plain one-finger scrolling: xterm moves the viewport itself; we only
-    // record the finger velocity so we can add inertia when the touch ends.
+    // Plain one-finger scrolling. xterm only scrolls its viewport on `wheel`
+    // events — it binds no touch handlers at all. The scrollable
+    // `.xterm-viewport` is a *sibling* of the `.xterm-screen` overlay the finger
+    // lands on, so it is never in the touch point's scroll-ancestor chain and
+    // native touch scrolling can't reach it. Drive scrollTop ourselves to follow
+    // the finger 1:1, then hand off to inertia (fling) when the touch ends.
+    const viewport = this.getViewportElement();
+    if (viewport && this.lastScrollTouchY !== null) {
+      const deltaY = this.lastScrollTouchY - touch.clientY;
+      if (deltaY !== 0) {
+        event.preventDefault();
+        viewport.scrollTop += deltaY;
+      }
+    }
     this.recordScrollSample(touch);
   };
 

@@ -14,22 +14,80 @@
     
     <!-- iOS Safari PWA Meta Tags -->
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Claude UI" />
+    <meta name="apple-mobile-web-app-title" content="CloudCLI UI" />
     
     <!-- iOS Safari Icons -->
     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
     
-    <!-- Theme Color -->
-    <meta name="theme-color" content="#ffffff" />
-    <meta name="msapplication-TileColor" content="#ffffff" />
+    <!-- Theme Color: dual metas for system scheme; early script / ThemeContext replace for app theme -->
+    <meta name="theme-color" content="#f7f4ef" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141414" media="(prefers-color-scheme: dark)" />
+    <meta name="msapplication-TileColor" content="#f7f4ef" />
     
     <!-- Prevent zoom on iOS -->
     <meta name="format-detection" content="telephone=no" />
+
+    <!-- Apply saved theme before paint so iOS Safari notch/status bar isn't stuck light -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('theme');
+          var dark = saved
+            ? saved === 'dark'
+            : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var color = dark ? '#141414' : '#f7f4ef';
+          if (dark) document.documentElement.classList.add('dark');
+          document.documentElement.style.backgroundColor = color;
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          for (var i = 0; i < metas.length; i++) metas[i].remove();
+          var meta = document.createElement('meta');
+          meta.name = 'theme-color';
+          meta.content = color;
+          document.head.appendChild(meta);
+          var tile = document.querySelector('meta[name="msapplication-TileColor"]');
+          if (tile) tile.setAttribute('content', color);
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- Instant first paint before JS boots (helps iOS PWA cold starts) -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #f7f4ef; }
+      html.dark, html.dark body { background: #141414; }
+      #boot-shell {
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+        color: #8a857c;
+      }
+      html.dark #boot-shell { color: #9ca3af; }
+      #boot-shell__bar {
+        height: 52px;
+        border-bottom: 1px solid rgba(0,0,0,.06);
+        flex-shrink: 0;
+      }
+      html.dark #boot-shell__bar { border-bottom-color: rgba(255,255,255,.08); }
+      #boot-shell__main {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-shell" aria-hidden="true">
+        <div id="boot-shell__bar"></div>
+        <div id="boot-shell__main">Loading…</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
     
     <!-- Service Worker Registration -->

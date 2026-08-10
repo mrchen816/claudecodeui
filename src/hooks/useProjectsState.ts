@@ -422,6 +422,8 @@ export function useProjectsState({
   const [newSessionTrigger, setNewSessionTrigger] = useState(0);
 
   const loadingProgressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Coalesce disk-watcher session upserts so chat doesn't full-reload every JSONL append. */
+  const externalMessageReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * Ref mirrors for state the websocket subscription handler needs.
    *
@@ -707,14 +709,21 @@ export function useProjectsState({
 
       // The transcript of the currently viewed session changed on disk while
       // no run is active here (e.g. edited from another client or the CLI):
-      // signal the chat view to reload its messages.
+      // signal the chat view to reload its messages — debounced, because Cursor
+      // agent transcripts append many times per second while a run is in flight.
       const currentSelectedSession = selectedSessionRef.current;
       if (
         currentSelectedSession
         && upsert.sessionId === currentSelectedSession.id
         && !activeSessionsRef.current.has(upsert.sessionId)
       ) {
-        setExternalMessageUpdate((prev) => prev + 1);
+        if (externalMessageReloadTimerRef.current) {
+          clearTimeout(externalMessageReloadTimerRef.current);
+        }
+        externalMessageReloadTimerRef.current = setTimeout(() => {
+          externalMessageReloadTimerRef.current = null;
+          setExternalMessageUpdate((prev) => prev + 1);
+        }, 2_500);
       } else {
         markSessionAttention(upsert.sessionId);
       }
@@ -809,6 +818,10 @@ export function useProjectsState({
       if (loadingProgressTimeoutRef.current) {
         clearTimeout(loadingProgressTimeoutRef.current);
         loadingProgressTimeoutRef.current = null;
+      }
+      if (externalMessageReloadTimerRef.current) {
+        clearTimeout(externalMessageReloadTimerRef.current);
+        externalMessageReloadTimerRef.current = null;
       }
     };
   }, []);
@@ -1022,18 +1035,20 @@ export function useProjectsState({
     try {
       const response = await api.projects();
       const freshProjects = (await response.json()) as Project[];
-      const projectsWithTaskMaster = mergeTaskMasterCache(freshProjects, projects);
-      const mergedProjects = mergeExpandedSessionPages(projects, projectsWithTaskMaster);
+      let latestMergedProjects: Project[] = [];
 
-      setProjects((prevProjects) =>
-        projectsHaveChanges(prevProjects, mergedProjects) ? mergedProjects : prevProjects,
-      );
+      setProjects((prevProjects) => {
+        const projectsWithTaskMaster = mergeTaskMasterCache(freshProjects, prevProjects);
+        const mergedProjects = mergeExpandedSessionPages(prevProjects, projectsWithTaskMaster);
+        latestMergedProjects = mergedProjects;
+        return projectsHaveChanges(prevProjects, mergedProjects) ? mergedProjects : prevProjects;
+      });
 
       if (!selectedProject) {
         return;
       }
 
-      const refreshedProject = mergedProjects.find((project) => project.projectId === selectedProject.projectId);
+      const refreshedProject = latestMergedProjects.find((project) => project.projectId === selectedProject.projectId);
       if (!refreshedProject) {
         return;
       }
@@ -1064,7 +1079,7 @@ export function useProjectsState({
     } catch (error) {
       console.error('Error refreshing sidebar:', error);
     }
-  }, [projects, selectedProject, selectedSession]);
+  }, [selectedProject, selectedSession]);
 
   const loadMoreProjectSessions = useCallback(async (projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);

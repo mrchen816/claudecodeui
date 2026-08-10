@@ -27,10 +27,10 @@
     "url": "https://github.com/siteboon/claudecodeui/issues"
   },
   "scripts": {
-    "dev": "concurrently --kill-others \"npm run server:dev\" \"npm run client\"",
+    "dev": "concurrently \"npm run server:dev-watch\" \"npm run client\"",
     "server": "node dist-server/server/index.js",
     "server:dev": "tsx --tsconfig server/tsconfig.json server/index.ts",
-    "server:dev-watch": "tsx watch --tsconfig server/tsconfig.json server/index.ts",
+    "server:dev-watch": "cross-env CLOUDCLI_DEV=1 tsx watch --exclude \"**/tests/**\" --exclude \"**/*.test.ts\" --exclude \"**/*.test.js\" --tsconfig server/tsconfig.json server/index.ts",
     "client": "vite",
     "desktop": "electron electron/main.js",
     "desktop:dev": "cross-env ELECTRON_DEV_URL=http://127.0.0.1:5173 electron electron/main.js",

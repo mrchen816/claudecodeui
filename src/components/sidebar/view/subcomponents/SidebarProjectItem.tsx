@@ -253,18 +253,22 @@ export default function SidebarProjectItem({
                 {isEditing ? (
                   <>
                     <button
+                      type="button"
                       className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-green-600"
                       onClick={(event) => {
                         event.stopPropagation();
+                        event.preventDefault();
                         saveProjectName();
                       }}
                     >
                       <Check className="h-4 w-4 text-white" />
                     </button>
                     <button
+                      type="button"
                       className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-gray-600"
                       onClick={(event) => {
                         event.stopPropagation();
+                        event.preventDefault();
                         onCancelEditingProject();
                       }}
                     >

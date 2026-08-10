@@ -344,7 +344,49 @@ async function startServer() {
         }
 
         console.log(`${terminalTextStyles.info('[INFO]')} To run in development mode with hot-module replacement, go to http://${DISPLAY_HOST}:${VITE_PORT}`);
-   
+
+        let isShuttingDown = false;
+        const shutdownRuntimeServices = async () => {
+            if (isShuttingDown) return;
+            isShuttingDown = true;
+
+            try {
+                await closeSessionsWatcher();
+            } catch (err) {
+                console.error('[Sessions] Error closing watchers during shutdown:', getErrorMessage(err));
+            }
+            try {
+                await browserUseService.stopAllSessions();
+            } catch (err) {
+                console.error('[Browser] Error stopping sessions during shutdown:', getErrorMessage(err));
+            }
+            try {
+                await stopAllPlugins();
+            } catch (err) {
+                console.error('[Plugins] Error stopping plugins during shutdown:', getErrorMessage(err));
+            }
+            await new Promise<void>((resolve) => {
+                wss.close(() => {
+                    server.close(() => resolve());
+                });
+            });
+            try {
+                await removeLocalServerMarker();
+            } catch (err) {
+                console.error('[Local Server] Error removing server marker during shutdown:', getErrorMessage(err));
+            }
+            process.exit(0);
+        };
+
+        server.on('error', (error: NodeJS.ErrnoException) => {
+            if (error.code === 'EADDRINUSE') {
+                console.error(`[ERROR] Port ${SERVER_PORT} is already in use. Stop the other process and retry.`);
+            } else {
+                console.error('[ERROR] Server error:', error);
+            }
+            process.exit(1);
+        });
+
         server.listen(SERVER_PORT, HOST, async () => {
             const appInstallPath = APP_ROOT;
             await writeLocalServerMarker().catch((error) => {
@@ -370,26 +412,6 @@ async function startServer() {
             });
         });
 
-        await closeSessionsWatcher();
-        // Clean up plugin processes on shutdown
-        const shutdownRuntimeServices = async () => {
-            try {
-                await browserUseService.stopAllSessions();
-            } catch (err) {
-                console.error('[Browser] Error stopping sessions during shutdown:', getErrorMessage(err));
-            }
-            try {
-                await stopAllPlugins();
-            } catch (err) {
-                console.error('[Plugins] Error stopping plugins during shutdown:', getErrorMessage(err));
-            }
-            try {
-                await removeLocalServerMarker();
-            } catch (err) {
-                console.error('[Local Server] Error removing server marker during shutdown:', getErrorMessage(err));
-            }
-            process.exit(0);
-        };
         process.on('SIGTERM', () => void shutdownRuntimeServices());
         process.on('SIGINT', () => void shutdownRuntimeServices());
     } catch (error) {

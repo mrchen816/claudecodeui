@@ -128,6 +128,8 @@
     "clickToChangeMode": "点击更改权限模式（或在输入框中按 Tab）",
     "showAllCommands": "显示所有命令",
     "clearInput": "清空输入",
+    "pasteWeChat": "粘贴（微信多条消息）",
+    "pasteFailed": "无法读取剪贴板，请用系统「粘贴」",
     "scrollToBottom": "滚动到底部",
     "queue": {
       "sendNext": "排队发送下一条消息",

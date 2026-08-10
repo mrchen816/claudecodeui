@@ -90,24 +90,25 @@ export default function SidebarProjectSessions({
     <div className="ml-3 space-y-1 border-l border-border pl-3">
       <div className="px-3 pb-1 pt-1 md:hidden">
         <button
-          className="flex h-8 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-medium text-primary-foreground transition-all duration-150 hover:bg-primary/90 active:scale-[0.98]"
+          type="button"
+          className="flex w-full items-center justify-start gap-2 rounded-md border border-border/30 bg-card p-2 text-sm font-normal text-foreground transition-all duration-150 hover:bg-accent/50 active:scale-[0.98]"
           onClick={() => {
             onProjectSelect(project);
             onNewSession(project);
           }}
         >
-          <Plus className="h-3 w-3" />
+          <Plus className="h-3 w-3 text-muted-foreground" />
           {t('sessions.newSession')}
         </button>
       </div>
 
       <Button
-        variant="default"
+        variant="ghost"
         size="sm"
-        className="hidden h-8 w-full justify-start gap-2 bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 md:flex"
+        className="hidden h-auto w-full justify-start gap-2 rounded-md border border-border/30 bg-card p-2 text-sm font-normal text-foreground hover:bg-accent/50 md:flex"
         onClick={() => onNewSession(project)}
       >
-        <Plus className="h-3 w-3" />
+        <Plus className="h-3 w-3 text-muted-foreground" />
         {t('sessions.newSession')}
       </Button>
 

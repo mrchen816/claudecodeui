@@ -128,6 +128,8 @@
     "clickToChangeMode": "Click to change permission mode (or press Tab in input)",
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
+    "pasteWeChat": "Paste (supports WeChat multi-select copy)",
+    "pasteFailed": "Unable to read clipboard. Use the system paste action.",
     "scrollToBottom": "Scroll to bottom",
     "queue": {
       "sendNext": "Queue next message",

@@ -121,7 +121,7 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
     box-sizing: border-box;
     transition: none;
   }
@@ -142,12 +142,14 @@
     height: 100%;
     margin: 0;
     padding: 0;
+    /* Fill iOS Safari status-bar / notch bleed with the app canvas, not white. */
+    background-color: hsl(var(--background));
     /* The app shell is a fixed inset-0 container (see AppContent), so the
        document itself never needs to scroll. Clipping it removes the phantom
        full-height page scrollbar and disables the browser pull-to-refresh
        gesture that reloads the page when scrolling up on mobile. */
     overflow: hidden;
-    overscroll-behavior-y: contain;
+    overscroll-behavior: none;
   }
   
   /* Root element with safe area padding for PWA */
@@ -196,7 +198,8 @@
     transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   
-  /* Color transitions for theme switching - exclude interactive elements */
+  /* Color transitions for theme switching - exclude interactive elements.
+     Chat message trees are huge; animating every node tanks scroll on mobile. */
   body, div, section, article, aside, header, footer, nav, main,
   h1, h2, h3, h4, h5, h6, p, span, blockquote,
   ul, ol, li, dl, dt, dd,
@@ -205,6 +208,13 @@
     transition: background-color 200ms ease-in-out, 
                 border-color 200ms ease-in-out,
                 color 200ms ease-in-out;
+  }
+
+  .chat-messages-pane,
+  .chat-messages-pane *,
+  .chat-messages-pane ::before,
+  .chat-messages-pane ::after {
+    transition: none !important;
   }
   
   /* Transform transitions */
@@ -567,7 +577,10 @@
 /* Mobile optimizations and components */
 @layer components {
   .chat-messages-pane {
-    contain: layout style paint;
+    /* Avoid paint containment on the scrollport — it fights smooth scrolling on iOS. */
+    contain: layout style;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
 
   .chat-composer-shell {
@@ -608,15 +621,40 @@
 
   /* Mobile touch optimization and safe areas */
   @media (max-width: 768px) {
-    * {
+    html,
+    body,
+    #root {
+      touch-action: pan-y;
+      overscroll-behavior-x: none;
+    }
+
+    /* Do not set touch-action on every node — it makes iOS chat scrolling hitchy
+       when the gesture begins on nested message content. */
+    button,
+    [role="button"],
+    a,
+    input,
+    textarea,
+    select,
+    .clickable,
+    .cursor-pointer {
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
     }
     
     /* Allow vertical scrolling in scroll containers */
-    .overflow-y-auto, [data-scroll-container] {
+    .overflow-y-auto,
+    .chat-messages-pane,
+    [data-scroll-container] {
       touch-action: pan-y;
       -webkit-overflow-scrolling: touch;
+    }
+
+    /* content-visibility + wrong intrinsic sizes causes scroll jumps on iOS Safari */
+    .chat-message {
+      content-visibility: visible;
+      contain-intrinsic-size: none;
+      contain: layout style;
     }
     
     /* Preserve checkbox visibility */
@@ -635,7 +673,26 @@
       -webkit-user-select: none;
       touch-action: manipulation;
     }
-    
+
+    /* Disable text selection and the iOS long-press callout inside the
+       sidebar on mobile, so long-pressing a project title starts a new
+       session instead of selecting text. Scoped to <=768px only, so desktop
+       keeps normal mouse text selection. Inputs (search / rename) stay
+       selectable and editable. */
+    .sidebar-no-select,
+    .sidebar-no-select * {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    .sidebar-no-select input,
+    .sidebar-no-select textarea {
+      -webkit-user-select: text;
+      user-select: text;
+      -webkit-touch-callout: default;
+    }
+
     /* Better mobile touch targets */
     .mobile-touch-target {
       @apply min-h-[44px] min-w-[44px];
@@ -905,6 +962,7 @@
     select {
       font-size: 16px !important;
       -webkit-appearance: none;
+      appearance: none;
     }
   }
   

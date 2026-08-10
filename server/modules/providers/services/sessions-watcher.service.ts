@@ -5,6 +5,8 @@ import { promises as fsPromises } from 'node:fs';
 import chokidar, { type FSWatcher } from 'chokidar';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { resolveCursorGlobalStateDbPath } from '@/modules/providers/list/cursor/cursor-composer-headers.js';
+import { CursorSessionSynchronizer } from '@/modules/providers/list/cursor/cursor-session-synchronizer.provider.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
@@ -31,6 +33,11 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
   },
 ];
 
+const CURSOR_GLOBAL_STATE_DB = resolveCursorGlobalStateDbPath();
+const CURSOR_GLOBAL_STATE_DIR = CURSOR_GLOBAL_STATE_DB
+  ? path.dirname(CURSOR_GLOBAL_STATE_DB)
+  : null;
+
 const WATCHER_IGNORED_PATTERNS = [
   '**/node_modules/**',
   '**/.git/**',
@@ -43,8 +50,11 @@ const WATCHER_IGNORED_PATTERNS = [
   '**/.DS_Store',
 ];
 
-const PROJECTS_UPDATE_DEBOUNCE_MS = 500;
-const PROJECTS_UPDATE_MAX_WAIT_MS = 2_000;
+/** Coalesce rapid transcript writes (Cursor agent JSONL grows every tool call). */
+const FILE_SYNC_DEBOUNCE_MS = 3_000;
+/** Sidebar/WS broadcast after sync — keep slightly above file debounce. */
+const PROJECTS_UPDATE_DEBOUNCE_MS = 2_500;
+const PROJECTS_UPDATE_MAX_WAIT_MS = 15_000;
 
 const watchers: FSWatcher[] = [];
 
@@ -59,11 +69,18 @@ type PendingWatcherUpdate = {
   updatedSessionIds: Set<string>;
 };
 
+type PendingFileSync = {
+  eventType: WatcherEventType;
+  provider: LLMProvider;
+};
+
 let pendingWatcherUpdate: PendingWatcherUpdate | null = null;
 let pendingWatcherUpdateStartedAt: number | null = null;
 let pendingWatcherFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let watcherRefreshInFlight = false;
 let watcherRescheduleAfterRefresh = false;
+const pendingFileSyncByPath = new Map<string, PendingFileSync>();
+const pendingFileSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Filters watcher events to provider-specific session artifact file types.
@@ -71,6 +88,10 @@ let watcherRescheduleAfterRefresh = false;
 function isWatcherTargetFile(provider: LLMProvider, filePath: string): boolean {
   if (provider === 'opencode') {
     return path.basename(filePath) === 'opencode.db';
+  }
+
+  if (provider === 'cursor' && path.basename(filePath) === 'state.vscdb') {
+    return true;
   }
 
   return filePath.endsWith('.jsonl');
@@ -222,17 +243,65 @@ async function flushPendingWatcherUpdate(): Promise<void> {
 
 /**
  * Handles file watcher updates and triggers provider file-level synchronization.
+ *
+ * Raw chokidar events are debounced per path first: Cursor agent transcripts
+ * are appended many times per second, and syncing/broadcasting on each write
+ * made the UI feel like it was constantly reloading.
  */
-async function onUpdate(
+function scheduleOnUpdate(
   eventType: WatcherEventType,
   filePath: string,
   provider: LLMProvider
-): Promise<void> {
+): void {
   if (!isWatcherTargetFile(provider, filePath)) {
     return;
   }
 
+  pendingFileSyncByPath.set(filePath, { eventType, provider });
+
+  const existingTimer = pendingFileSyncTimers.get(filePath);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  pendingFileSyncTimers.set(
+    filePath,
+    setTimeout(() => {
+      pendingFileSyncTimers.delete(filePath);
+      const pending = pendingFileSyncByPath.get(filePath);
+      pendingFileSyncByPath.delete(filePath);
+      if (!pending) {
+        return;
+      }
+      void flushFileSync(pending.eventType, filePath, pending.provider);
+    }, FILE_SYNC_DEBOUNCE_MS),
+  );
+}
+
+async function flushFileSync(
+  eventType: WatcherEventType,
+  filePath: string,
+  provider: LLMProvider
+): Promise<void> {
   try {
+    if (provider === 'cursor' && path.basename(filePath) === 'state.vscdb') {
+      const synchronizer = new CursorSessionSynchronizer();
+      const sessionIds = await synchronizer.synchronizeWithSessionIds();
+      if (sessionIds.length === 0) {
+        return;
+      }
+
+      console.log(`Session synchronization triggered by ${eventType} event for Cursor composer headers`, {
+        filePath,
+        sessionCount: sessionIds.length,
+      });
+
+      for (const sessionId of sessionIds) {
+        queuePendingWatcherUpdate(eventType, provider, sessionId);
+      }
+      return;
+    }
+
     const result = await sessionSynchronizerService.synchronizeProviderFile(provider, filePath);
     if (!result.indexed) {
       return;
@@ -265,27 +334,40 @@ export async function initializeSessionsWatcher(): Promise<void> {
     failures: initialSync.failures,
   });
 
+  if (process.env.CLOUDCLI_DEV === '1') {
+    console.log('[INFO] Dev mode: skipping filesystem watchers (initial sync only)');
+    return;
+  }
+
+  const watcherOptions = {
+    ignored: WATCHER_IGNORED_PATTERNS,
+    persistent: true,
+    ignoreInitial: true,
+    followSymlinks: false,
+    usePolling: true,
+    interval: 6_000,
+    binaryInterval: 6_000,
+    awaitWriteFinish: {
+      stabilityThreshold: 1_500,
+      pollInterval: 250,
+    },
+  } as const;
+
   for (const { provider, rootPath } of PROVIDER_WATCH_PATHS) {
     try {
       await fsPromises.mkdir(rootPath, { recursive: true });
 
       const watcher = chokidar.watch(rootPath, {
-        ignored: WATCHER_IGNORED_PATTERNS,
-        persistent: true,
-        ignoreInitial: true,
-        followSymlinks: false,
+        ...watcherOptions,
         depth: 6,
-        usePolling: true,
-        interval: 6_000,
-        binaryInterval: 6_000,
       });
 
       watcher
         .on('add', (filePath: string) => {
-          void onUpdate('add', filePath, provider);
+          scheduleOnUpdate('add', filePath, provider);
         })
         .on('change', (filePath: string) => {
-          void onUpdate('change', filePath, provider);
+          scheduleOnUpdate('change', filePath, provider);
         })
         .on('error', (error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
@@ -301,6 +383,35 @@ export async function initializeSessionsWatcher(): Promise<void> {
       });
     }
   }
+
+  if (CURSOR_GLOBAL_STATE_DIR) {
+    try {
+      const watcher = chokidar.watch(CURSOR_GLOBAL_STATE_DIR, {
+        ...watcherOptions,
+        depth: 0,
+      });
+
+      watcher
+        .on('add', (filePath: string) => {
+          scheduleOnUpdate('add', filePath, 'cursor');
+        })
+        .on('change', (filePath: string) => {
+          scheduleOnUpdate('change', filePath, 'cursor');
+        })
+        .on('error', (error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error('Session watcher error for Cursor composer headers', { error: message });
+        });
+
+      watchers.push(watcher);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Failed to initialize Cursor composer header watcher', {
+        rootPath: CURSOR_GLOBAL_STATE_DIR,
+        error: message,
+      });
+    }
+  }
 }
 
 /**
@@ -308,6 +419,12 @@ export async function initializeSessionsWatcher(): Promise<void> {
  */
 export async function closeSessionsWatcher(): Promise<void> {
   clearPendingWatcherFlushTimer();
+
+  for (const timer of pendingFileSyncTimers.values()) {
+    clearTimeout(timer);
+  }
+  pendingFileSyncTimers.clear();
+  pendingFileSyncByPath.clear();
 
   await Promise.all(
     watchers.map(async (watcher) => {

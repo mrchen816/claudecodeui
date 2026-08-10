@@ -53,29 +53,6 @@ export default function SidebarCollapsed({
         <Settings className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
       </button>
 
-      {/* Report Issue */}
-      <a
-        href={GITHUB_ISSUES_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="group flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
-        aria-label={t('actions.reportIssue')}
-        title={t('actions.reportIssue')}
-      >
-        <Bug className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-      </a>
-
-      {/* Discord */}
-      <a
-        href={DISCORD_INVITE_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="group flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
-        aria-label={t('actions.joinCommunity')}
-        title={t('actions.joinCommunity')}
-      >
-        <DiscordIcon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-      </a>
 
       {/* Restart-required indicator */}
       {restartRequired && (

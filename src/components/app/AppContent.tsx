@@ -9,6 +9,7 @@ import { QuickSettingsPanel } from '../quick-settings-panel';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { PaletteOpsProvider, usePaletteOpsRegister } from '../../contexts/PaletteOpsContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
+import { useMobileSidebarSwipe } from '../../hooks/useMobileSidebarSwipe';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
 import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
@@ -146,6 +147,12 @@ function AppContentInner() {
     refreshProjects: refreshProjectsSilently,
   });
 
+  const mobileEdgeSwipeRef = useMobileSidebarSwipe({
+    isMobile,
+    sidebarOpen,
+    onOpen: () => setSidebarOpen(true),
+  });
+
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
       return undefined;
@@ -206,6 +213,14 @@ function AppContentInner() {
 
   return (
     <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
+      {isMobile && (
+        <div
+          ref={mobileEdgeSwipeRef}
+          className="fixed inset-y-0 left-0 z-[45] w-6 touch-none"
+          aria-hidden="true"
+        />
+      )}
+
       {!isMobile ? (
         <div className="h-full flex-shrink-0 border-r border-border/50">
           <Sidebar {...sidebarSharedProps} />

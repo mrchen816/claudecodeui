@@ -140,6 +140,7 @@ export function useSidebarController({
   const [archivedSessions, setArchivedSessions] = useState<ArchivedSessionListItem[]>([]);
   const [isArchivedSessionsLoading, setIsArchivedSessionsLoading] = useState(false);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [conversationRefreshNonce, setConversationRefreshNonce] = useState(0);
   const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, boolean>>(new Map());
   const [loadingMoreProjects, setLoadingMoreProjects] = useState<Set<string>>(new Set());
   const searchSeqRef = useRef(0);
@@ -426,7 +427,7 @@ export function useSidebarController({
         eventSourceRef.current = null;
       }
     };
-  }, [debouncedSearchQuery, searchMode]);
+  }, [conversationRefreshNonce, debouncedSearchQuery, searchMode]);
 
   // All sidebar state keys (expanded, starred, loading, etc.) use the DB
   // `projectId` as their identifier after the migration.
@@ -884,10 +885,13 @@ export function useSidebarController({
         Promise.resolve(onRefresh()),
         fetchArchivedSessions(),
       ]);
+      if (searchMode === 'conversations' && debouncedSearchQuery.length >= 2) {
+        setConversationRefreshNonce((previous) => previous + 1);
+      }
     } finally {
       setIsRefreshing(false);
     }
-  }, [fetchArchivedSessions, onRefresh]);
+  }, [debouncedSearchQuery.length, fetchArchivedSessions, onRefresh, searchMode]);
 
   const updateSessionSummary = useCallback(
     // `_projectId` and `_provider` are preserved for compatibility with

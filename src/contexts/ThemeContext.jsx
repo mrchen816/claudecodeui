@@ -2,6 +2,45 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const ThemeContext = createContext();
 
+/** Match `--background`: light hsl(44 22% 96%), dark hsl(0 0% 8%). */
+export const THEME_COLOR_LIGHT = '#f7f4ef';
+export const THEME_COLOR_DARK = '#141414';
+
+/**
+ * iOS Safari often ignores in-place theme-color updates. Replace the meta
+ * node(s) so the status-bar / notch chrome picks up the app theme.
+ */
+export function applyBrowserChromeTheme(isDark) {
+  if (typeof document === 'undefined') return;
+
+  const color = isDark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT;
+
+  document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+    meta.remove();
+  });
+
+  const themeColorMeta = document.createElement('meta');
+  themeColorMeta.setAttribute('name', 'theme-color');
+  themeColorMeta.setAttribute('content', color);
+  document.head.appendChild(themeColorMeta);
+
+  const tileMeta = document.querySelector('meta[name="msapplication-TileColor"]');
+  if (tileMeta) {
+    tileMeta.setAttribute('content', color);
+  }
+
+  const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+  if (statusBarMeta) {
+    // black-translucent lets the page background fill the notch in installed PWA.
+    statusBarMeta.setAttribute('content', isDark ? 'black-translucent' : 'default');
+  }
+
+  document.documentElement.style.backgroundColor = color;
+  if (document.body) {
+    document.body.style.backgroundColor = color;
+  }
+}
+
 export const useTheme = () => {
   const context = useContext(ThemeContext);
   if (!context) {
@@ -18,12 +57,12 @@ export const ThemeProvider = ({ children }) => {
     if (savedTheme) {
       return savedTheme === 'dark';
     }
-    
+
     // Check system preference
     if (window.matchMedia) {
       return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
-    
+
     return false;
   });
 
@@ -32,32 +71,12 @@ export const ThemeProvider = ({ children }) => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
-      
-      // Update iOS status bar style and theme color for dark mode
-      const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-      if (statusBarMeta) {
-        statusBarMeta.setAttribute('content', 'black-translucent');
-      }
-      
-      const themeColorMeta = document.querySelector('meta[name="theme-color"]');
-      if (themeColorMeta) {
-        themeColorMeta.setAttribute('content', '#141414'); // Dark background color (hsl(0 0% 8%))
-      }
     } else {
       document.documentElement.classList.remove('dark');
       localStorage.setItem('theme', 'light');
-      
-      // Update iOS status bar style and theme color for light mode
-      const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-      if (statusBarMeta) {
-        statusBarMeta.setAttribute('content', 'default');
-      }
-      
-      const themeColorMeta = document.querySelector('meta[name="theme-color"]');
-      if (themeColorMeta) {
-        themeColorMeta.setAttribute('content', '#f6f4ef'); // Light background color (warm cream)
-      }
     }
+
+    applyBrowserChromeTheme(isDarkMode);
   }, [isDarkMode]);
 
   // Listen for system theme changes
@@ -78,7 +97,7 @@ export const ThemeProvider = ({ children }) => {
   }, []);
 
   const toggleDarkMode = () => {
-    setIsDarkMode(prev => !prev);
+    setIsDarkMode((prev) => !prev);
   };
 
   const value = {

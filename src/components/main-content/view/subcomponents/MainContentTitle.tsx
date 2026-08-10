@@ -36,11 +36,14 @@ function getTabTitle(activeTab: AppTab, shouldShowTasksTab: boolean, t: (key: st
 }
 
 function getSessionTitle(session: ProjectSession): string {
-  if (session.__provider === 'cursor') {
-    return (session.name as string) || 'Untitled Session';
+  // Rename persists to `summary` (custom_name). Prefer it over Cursor's native
+  // `name`, which often stays empty/"Untitled" and would ignore sidebar renames.
+  const title = String(session.summary || session.name || '').trim();
+  if (title) {
+    return title;
   }
 
-  return (session.summary as string) || 'New Session';
+  return session.__provider === 'cursor' ? 'Untitled Session' : 'New Session';
 }
 
 export default function MainContentTitle({

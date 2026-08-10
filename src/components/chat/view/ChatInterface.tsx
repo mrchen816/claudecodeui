@@ -121,7 +121,6 @@ function ChatInterface({
     scrollContainerRef,
     scrollToBottom,
     scrollToBottomAndReset,
-    handleScroll,
   } = useChatSessionState({
     selectedProject,
     selectedSession,
@@ -186,6 +185,7 @@ function ChatInterface({
     handleTextareaInput,
     syncInputOverlayScroll,
     handleClearInput,
+    pasteFromClipboard,
     handleAbortSession,
     handlePermissionDecision,
     handleGrantToolPermission,
@@ -331,8 +331,6 @@ function ChatInterface({
       <div className="flex h-full min-h-0 flex-col">
         <ChatMessagesPane
           scrollContainerRef={scrollContainerRef}
-          onWheel={handleScroll}
-          onTouchMove={handleScroll}
           isLoadingSessionMessages={isLoadingSessionMessages}
           isProcessing={isProcessing}
           hasActivityIndicator={hasActivityIndicator}
@@ -416,6 +414,7 @@ function ChatInterface({
           onToggleCommandMenu={handleToggleCommandMenu}
           hasInput={Boolean(input.trim())}
           onClearInput={handleClearInput}
+          onPasteFromClipboard={pasteFromClipboard}
           onSubmit={handleSubmit}
           isDragActive={isDragActive}
           queuedDraft={queuedDraft}
